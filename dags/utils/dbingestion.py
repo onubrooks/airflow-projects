@@ -18,18 +18,18 @@ def db_conn_ingestion(user, password, host, port, db, table_name, csv_file, exec
     print("connection was made successfully ")
 
     start_time = time()
-    df_iter = pd.read_csv(csv_file, encoding="unicode_escape", iterator=True,  chunksize=100000)
+    df_iter = pd.read_csv(csv_file, encoding='unicode_escape', iterator=True,  chunksize=100000)
 
     df = next(df_iter)
 
     # Change the two date_time columns into actual date_time objects
-    df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
-    df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
+    df.lpep_pickup_datetime = pd.to_datetime(df.lpep_pickup_datetime)
+    df.lpep_dropoff_datetime = pd.to_datetime(df.lpep_dropoff_datetime)
 
     #Creates a table with certain headers only the column headers
     df.head(n=0).to_sql(name=table_name, con=engine, if_exists='replace')
 
-    df.to_sql(name='yellow_taxi_data', con=engine, if_exists='append')
+    df.to_sql(name='green_taxi_data', con=engine, if_exists='append')
 
     end_time = time()
     print("Inserted the initial chunk into the table at about %.3f seconds" % (end_time - start_time))
@@ -41,10 +41,10 @@ def db_conn_ingestion(user, password, host, port, db, table_name, csv_file, exec
        try:
            df = next(df_iter)
 
-           df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
-           df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
+           df.lpep_pickup_datetime = pd.to_datetime(df.lpep_pickup_datetime)
+           df.lpep_dropoff_datetime = pd.to_datetime(df.lpep_dropoff_datetime)
 
-           df.to_sql(name='yellow_taxi_data', con=engine, if_exists='append')
+           df.to_sql(name='green_taxi_data', con=engine, if_exists='append')
 
            end_time = time()
            print("Insertion for this chunk was successfull at complete at about %.3f seconds" % (end_time - start_time))

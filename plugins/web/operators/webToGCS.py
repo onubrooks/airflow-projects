@@ -16,7 +16,7 @@ class WebToGCSOperator(BaseOperator):
 
     template_fields: Sequence[str] = (
         "base_endpoint",
-        "services",
+        "service",
         "destination_bucket",
     )
 
@@ -24,7 +24,7 @@ class WebToGCSOperator(BaseOperator):
             self,
             *,
             destination_bucket:  Optional[str] = None,
-            services: Sequence[str] = None,
+            service: str = None,
             years: Sequence[str] = None,
             months: Sequence[str] = None,
             base_endpoint: str = 'https://github.com/DataTalksClub/nyc-tlc-data/releases/download/',
@@ -38,7 +38,7 @@ class WebToGCSOperator(BaseOperator):
         super().__init__(**kwargs)
 
         self.destination_bucket = self._format_bucket_name(destination_bucket)
-        self.services = services
+        self.service = service
         self.years = years
         self.months = months
         self.base_endpoint = base_endpoint
@@ -54,29 +54,57 @@ class WebToGCSOperator(BaseOperator):
              delegate_to = self.delegete_to,
              impersonation_chain = self.impersonation_chain
         )
-        for service in self.services:
-            for year in self.years:
-                for month in self.months:
-                    self._web_to_gcs(gcs_hook, year, service, month)
+        self._web_to_gcs(gcs_hook, self.service)
+                    
 
-    def _web_to_gcs(self, gcs_hook: GCSHook, year, service, month) -> None:
+    def _web_to_gcs(self, gcs_hook: GCSHook, service) -> None:
 
         """function to download and copy file to gcs bucket """
 
-        file_name = f"{service}_tripdata_{year}-{month}.csv.gz"
+        file_name = f"{service}_tripdata_{{ dag_run.logical_date.strftime(\'%Y-%m\') }}.csv.gz"
         
-        endpoint = f"{self.base_endpoint}{service}/{service}_tripdata_{year}-{month}.csv.gz"
+        endpoint = f"{self.base_endpoint}{service}/{service}_tripdata_{{ dag_run.logical_date.strftime(\'%Y-%m\') }}.csv.gz"
         
-        destination_path = f"{service}_tripdata_{year}-{month}.csv"
+        destination_path = f"{service}_tripdata_{{ dag_run.logical_date.strftime(\'%Y-%m\') }}.csv"
 
         self.log.info("Execute downloading of file from %s to gs://%s//%s",
                     endpoint,
                     self.destination_bucket,
                     destination_path
         )
+        with tempfile.TemporaryDirectory() as tmpdirname:
+                r = requests.get(endpoint)
+
+
+                open(f'{tmpdirname}/{destination_path}', 'wb').write(r.content)
+                self.log.info(f"File written to temp directory: {tmpdirname}/{destination_path}")
+
+                # read it back into a parquet file
+                df = pd.read_csv(f'{tmpdirname}/{destination_path}', encoding='utf-8')
+                print(df.head())
+                file_name=destination_path
+                file_name = file_name.replace('.csv.gz', '.csv')
+
+                df.to_csv(f'{tmpdirname}/{file_name}', index=False) #engine='pyarrow')
+                self.log.info(f"Parquet: {file_name}")
+                local_file_name = f'{tmpdirname}/{file_name}'
+
+                # upload it to gcs using GCS hooks
+                gcs_hook.upload(
+                     bucket_name=self.destination_bucket,
+                     object_name=f"{self.service}/{file_name}",
+                     filename=local_file_name,
+                     mime_type=self.mime_type,
+                     gzip=False,
+                )
+
+                self.log.info("Loaded file from %s to gs://%s//%s",
+                    endpoint,
+                    self.destination_bucket,
+                    f"{self.service}/{file_name}"
+                )
         
-        # Download the data
-        r = requests.get(endpoint)
+        """r = requests.get(endpoint)
 
         # Write the data to a temporary file
         temp_file = 'temp.csv.gz'
@@ -84,7 +112,7 @@ class WebToGCSOperator(BaseOperator):
             f.write(r.content)
 
         # Read the data from the temporary file using Pandas
-        df = pd.read_csv(temp_file, encoding='utf-8', compression='gzip')
+        df = pd.read_csv(temp_file, encoding='utf-8')
         self.log.info(df.head(10))
         file_name=destination_path
         file_name = file_name.replace('.csv.gz', '.csv')
@@ -112,41 +140,7 @@ class WebToGCSOperator(BaseOperator):
         # Delete the temporary file
         import os
         os.remove(temp_file)
-        os.remove(local_file_name)
-
-        """ # download it using requests via into a tempfile a pandas df
-        with tempfile.TemporaryDirectory() as tmpdirname:
-
-                r = requests.get(endpoint)
-
-
-                open(f'{tmpdirname}/{destination_path}', 'wb').write(r.content)
-                self.log.info(f"File written to temporary directory: {tmpdirname}/{destination_path}")
-
-                # read it back into a parquet file
-                df = pd.read_csv(f'{tmpdirname}/{destination_path}', encoding='utf-8')
-                file_name=destination_path
-                file_name = file_name.replace('.csv.gz', '.csv')
-
-                # yellow_tripdata_2021-01.csv
-                df.to_csv(f'{tmpdirname}/{file_name}') #engine='pyarrow')
-                self.log.info(f"Parquet: {file_name}")
-                local_file_name = f'{tmpdirname}/{file_name}'
-
-                # upload it to gcs using GCS hooks
-                gcs_hook.upload(
-                     bucket_name=self.destination_bucket,
-                     object_name=f"{self.service}/{file_name}",
-                     filename=local_file_name,
-                     mime_type=self.mime_type,
-                     gzip=False,
-                )
-
-                self.log.info("Loaded file from %s to gs://%s//%s",
-                    endpoint,
-                    self.destination_bucket,
-                    f"{service}/{file_name}"
-                )"""
+        os.remove(local_file_name)"""
 
     @staticmethod
     def _format_bucket_name(name: str) -> str:
