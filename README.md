@@ -110,6 +110,19 @@ There are two options to run the pipelines:
 8.Inside dags/plugins folder create a web folder
 9.Inside web folder, create operators folder and copy over the files from this repo.
 
+## External Resources
+
+Airflow setup: [<https://airflow.apache.org/docs/apache-airflow/stable/start.html>](https://airflow.apache.org/docs/apache-airflow/stable/start.html)
+
+Docker setup instructions: <https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html>
+
 ## Conclusion
+
+To restart the project in cases where the docker containers were stopped:
+
+```bash
+    docker compose up airflow-init
+    docker compose up
+```
 
 By this point you should have enough to run the DAG files by simply copying them over to your local setup. Have fun coding...
