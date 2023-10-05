@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.empty import EmptyOperator
 
-from web.operators.webToGCS import WebToGCSOperator
+from web.operators.assignment.webToGCS import WebToGCSOperator
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
 
 
@@ -48,9 +48,7 @@ DEFAULT_ARGS = {
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 GCP_BUCKET = os.environ.get("GCP_GCS_BUCKET")
 ENDPOINT = 'https://github.com/DataTalksClub/nyc-tlc-data/releases/download/'
-SERVICES = ["green"]
-YEARS = ["2019"]
-MONTHS = ["01"] # ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+SERVICE = "green"
 DATASET="airflow_nyc"
 
 with DAG(
@@ -69,23 +67,20 @@ with DAG(
         task_id="download_to_gcs",
         base_endpoint=ENDPOINT,
         destination_bucket=GCP_BUCKET,
-        services=SERVICES,
-        years=YEARS,
-        months=MONTHS,
+        service=SERVICE,
     )
     
-    for SERVICE in SERVICES:
-        source_objects = [f"{SERVICE}/{SERVICE}_tripdata_{year}-{month}.csv" for year in YEARS for month in MONTHS]
-        globals()[f"load_gcs_to_bgquery_{SERVICE}"] = GCSToBigQueryOperator(
-            task_id = f"load_gcs_to_bgquery_{SERVICE}",
-            bucket=f"{GCP_BUCKET}",
-            source_objects=source_objects,
-            destination_project_dataset_table=f"{DATASET}.{SERVICE}_{DATASET}_data", # `airflow_nyc.green_dataset_data` i.e table name
-            autodetect=True, #DETECT SCHEMA : the columns and the type of data in each columns of the CSV file
-            # schema_fields=SCHEMA, # SCHEMA : the columns and the type of data in each columns of the CSV file
-            write_disposition="WRITE_TRUNCATE", # command to update table from the  latest (or last row) row number upon every job run or task run
-        )
+    source_objects = [f"{SERVICE}/{SERVICE}_tripdata_{{ dag_run.logical_date.strftime(\'%Y-%m\') }}.csv"]
+    load_gcs_to_bgquery = GCSToBigQueryOperator(
+        task_id = f"load_gcs_to_bgquery",
+        bucket=f"{GCP_BUCKET}",
+        source_objects=source_objects,
+        destination_project_dataset_table=f"{DATASET}.{SERVICE}_{DATASET}_data", # `airflow_nyc.green_dataset_data` i.e table name
+        autodetect=True, #DETECT SCHEMA : the columns and the type of data in each columns of the CSV file
+        # schema_fields=SCHEMA, # SCHEMA : the columns and the type of data in each columns of the CSV file
+        write_disposition="WRITE_APPEND", # command to update table from the  latest (or last row) row number upon every job run or task run
+    )
 
     end = EmptyOperator(task_id="end")
 
-    start >> download_to_gcs >> [globals()[f"load_gcs_to_bgquery_{SERVICE}"] for SERVICE in SERVICES] >> end
+    start >> download_to_gcs >> load_gcs_to_bgquery >> end
